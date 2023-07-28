@@ -52,3 +52,7 @@ def check_permissions(new_group_list):
     ]
     print(f"Permissions to add: {len(permissions_to_add)}")
     return permissions_to_add
+
+
+def get_template_depots(template_pattern="template"):
+    return p4.run("depots", "-E", f"*{template_pattern}*")

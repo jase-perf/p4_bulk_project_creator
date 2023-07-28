@@ -14,13 +14,18 @@ from PyQt6.QtWidgets import (
     QPushButton,
     QFileDialog,
     QLabel,
+    QComboBox,
 )
+
+import p4_utils
+
+p4_utils.init(username="jadmin", port="ssl:p4.argonautcreations.com:1666")
 
 
 class SharedData:
     def __init__(self):
         self.table_data = []
-        self.template_data = {}
+        self.template_depot = None
 
 
 class LoadCsvWindow(QWidget):
@@ -103,8 +108,25 @@ class TemplateSetupWindow(QWidget):
 
         # Set up the main Vertical Layout
         main_layout = QVBoxLayout()
-        main_layout.addWidget(QLabel("Hello Template Setup!"))
-        main_layout.addWidget(QLabel(f"{self.shared_data.table_data}"))
+        main_layout.addStretch()
+        main_layout.addWidget(
+            QLabel("Select template depot to use for all new depots:")
+        )
+        main_layout.addWidget(
+            QLabel(
+                '(Template depots must include "template" in the name to show up here.)'
+            )
+        )
+        main_layout.addStretch()
+        self.template_combo = QComboBox(self)
+        template_depots = p4_utils.get_template_depots()
+        self.shared_data.template_depot = (
+            template_depots[0] if template_depots else None
+        )
+        self.template_combo.addItems([depot["name"] for depot in template_depots])
+        self.template_combo.currentIndexChanged.connect(self.set_template_depot)
+        main_layout.addWidget(self.template_combo)
+        main_layout.addStretch()
 
         # Set up the button box at the bottom of the window
         button_layout = QHBoxLayout()
@@ -113,13 +135,17 @@ class TemplateSetupWindow(QWidget):
         button_layout.addWidget(self.back_button)
         self.next_button = QPushButton("Summarize")
         self.next_button.clicked.connect(self.go_to_preview)
-        if not self.shared_data.template_data:
+        if not self.shared_data.template_depot:
             self.next_button.setEnabled(False)
         button_layout.addWidget(self.next_button)
         main_layout.addLayout(button_layout)
 
         # Set the main layout of the window
         self.setLayout(main_layout)
+
+    def set_template_depot(self, index):
+        self.shared_date.template_depot = template_depots[i]
+        self.next_button.setEnabled(True)
 
     def go_to_preview(self):
         self.parent().push(PreviewWindow(self.shared_data))
@@ -131,13 +157,13 @@ class PreviewWindow(QWidget):
         self.shared_data = shared_data
 
         print("Template Data:")
-        print(self.shared_data.template_data)
+        print(self.shared_data.template_depot)
 
         # Set up the main Vertical Layout
         main_layout = QVBoxLayout()
         main_layout.addWidget(QLabel("Hello Summary!"))
         main_layout.addWidget(QLabel(f"{self.shared_data.table_data}"))
-        main_layout.addWidget(QLabel(f"{self.shared_data.template_data}"))
+        main_layout.addWidget(QLabel(f"{self.shared_data.template_depot}"))
 
         # Set up the button box at the bottom of the window
         button_layout = QHBoxLayout()
@@ -165,7 +191,7 @@ class CreationWindow(QWidget):
         main_layout = QVBoxLayout()
         main_layout.addWidget(QLabel("Hello Creation!"))
         main_layout.addWidget(QLabel(f"{self.shared_data.table_data}"))
-        main_layout.addWidget(QLabel(f"{self.shared_data.template_data}"))
+        main_layout.addWidget(QLabel(f"{self.shared_data.template_depot}"))
 
         # Set up the button box at the bottom of the window
         button_layout = QHBoxLayout()
