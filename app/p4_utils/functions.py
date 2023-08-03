@@ -8,9 +8,10 @@ def check_remaining_seats():
 
 def check_users(new_user_list):
     """Check if the users in user_list exist in the Perforce server."""
-    current_users = p4.run("users")
-    current_user_names = [user["User"] for user in current_users]
-    users_to_add = [user for user in new_user_list if user not in current_user_names]
+    current_user_names = [user["User"] for user in p4.run("users")]
+    users_to_add = [
+        user for user in new_user_list if user["User"] not in current_user_names
+    ]
     print(f"Users to add: {len(users_to_add)}")
     return users_to_add
 
