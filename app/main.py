@@ -5,7 +5,6 @@ import re
 from PyQt6.QtWidgets import (
     QApplication,
     QMainWindow,
-    QTabWidget,
     QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
@@ -29,18 +28,26 @@ p4_utils.init(username="jadmin", port="ssl:p4.argonautcreations.com:1666")
 # EMAIL_DOMAIN can be customized to require a specific domain like, "myuniversity.edu"
 EMAIL_DOMAIN = r"[^@]+\.[^@]+"
 CSV_FIELDS = [
-    {"label": "Name", "validation": lambda s: len(s) > 0},
+    {"label": "Name", "validation": lambda s: s or None},
     {
         "label": "E-mail",
-        "validation": lambda s: bool(re.match(rf"[^@]+@{EMAIL_DOMAIN}", s)),
+        "validation": lambda s: s
+        if bool(re.match(rf"[^@]+@{EMAIL_DOMAIN}", s))
+        else None,
     },
     {
         "label": "Group",
-        "validation": lambda s: bool(
+        "validation": lambda s: s
+        if bool(
             re.match(r"^(?!-)[\w]+$", s, re.UNICODE)
             and not s.isnumeric()
             and all(c not in "/,.*%" for c in s)
-        ),
+        )
+        else None,
+    },
+    {
+        "label": "Owner",
+        "validation": lambda s: bool(s and s.lower() not in ["false", "no", "f", "n"]),
     },
 ]
 
@@ -50,15 +57,18 @@ class CSV_VALIDATION_ERROR(Exception):
 
 
 def validate_csv_row(i: int, row: list) -> list:
+    formatted_row = []
     for column, data in enumerate(row):
         print(
             f"Checking [{i},{column}] {data} against {CSV_FIELDS[column]['label']} validation function..."
         )
-        if not CSV_FIELDS[column]["validation"](data):
+        formatted_data = CSV_FIELDS[column]["validation"](data.strip())
+        if formatted_data is None:
             raise CSV_VALIDATION_ERROR(
-                f"Validation failed for [{i},{column}] {data} against {CSV_FIELDS[column]['label']} validation function."
+                f"Validation failed in csv data for row {i}: \n{row} \nValue: '{data}' failed validation for field type '{CSV_FIELDS[column]['label']}'."
             )
-    return [data.strip() for data in row]
+        formatted_row.append(formatted_data)
+    return formatted_row
 
 
 class SharedData:
@@ -87,7 +97,7 @@ class LoadCsvWindow(QWidget):
 
         # Set up the table for viewing CSV data
         self.table = QTableWidget()
-        self.table.setColumnCount(3)
+        self.table.setColumnCount(len(CSV_FIELDS))
         self.table.setHorizontalHeaderLabels([field["label"] for field in CSV_FIELDS])
         main_layout.addWidget(self.table)
 
@@ -101,11 +111,11 @@ class LoadCsvWindow(QWidget):
             )
         )
         self.template_combo = QComboBox(self)
-        template_depots = p4_utils.get_template_depots()
+        self.template_depots = p4_utils.get_template_depots()
         self.shared_data.template_depot = (
-            template_depots[0] if template_depots else None
+            self.template_depots[0] if self.template_depots else None
         )
-        self.template_combo.addItems([depot["name"] for depot in template_depots])
+        self.template_combo.addItems([depot["name"] for depot in self.template_depots])
         self.template_combo.currentIndexChanged.connect(self.set_template_depot)
         main_layout.addWidget(self.template_combo)
 
@@ -152,7 +162,7 @@ class LoadCsvWindow(QWidget):
                 for column_number, data in enumerate(row_data):
                     print(f"Row data: {data}", end=" ")
                     self.table.setItem(
-                        row_number, column_number, QTableWidgetItem(data)
+                        row_number, column_number, QTableWidgetItem(str(data))
                     )
 
             # Resize the columns to fit the data
@@ -162,7 +172,7 @@ class LoadCsvWindow(QWidget):
     def enable_next_if_ready(self):
         if (
             len(self.shared_data.table_data) > 0
-            and len(self.shared_data.table_data[0]) == 3
+            and len(self.shared_data.table_data[0]) == len(CSV_FIELDS)
             and self.shared_data.template_depot
         ):
             self.next_button.setEnabled(True)
@@ -179,7 +189,7 @@ class LoadCsvWindow(QWidget):
         self.parent().push(PreviewWindow(self.shared_data))
 
     def set_template_depot(self, index):
-        self.shared_date.template_depot = template_depots[i]
+        self.shared_data.template_depot = self.template_depots[index]
         self.enable_next_if_ready()
 
 
