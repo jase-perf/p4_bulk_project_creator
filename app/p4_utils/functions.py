@@ -16,6 +16,11 @@ def check_users(new_user_list):
     return users_to_add
 
 
+def create_user(user_to_add: dict):
+    p4.input = user_to_add
+    return p4.run("user", "-f", "-i")
+
+
 def check_groups(new_group_list):
     """Check if the groups in group_list exist in the Perforce server."""
     current_groups = p4.run("groups")
@@ -27,6 +32,11 @@ def check_groups(new_group_list):
     return groups_to_add
 
 
+def create_group(group_to_add: dict):
+    p4.input = group_to_add
+    return p4.run("group", "-i")
+
+
 def check_depots(new_group_list):
     # Groups and Depots have the same name
     """Check if the depots in depot_list exist in the Perforce server."""
@@ -36,7 +46,89 @@ def check_depots(new_group_list):
         depot for depot in new_group_list if depot not in current_depot_names
     ]
     print(f"Depots to add: {len(depots_to_add)}")
-    return depots_to_add
+    print(f"Existing depots to update: {len(new_group_list) - len(depots_to_add)}")
+    return new_group_list
+
+
+def create_depot(depot_name, depot_type):
+    # TODO: Add support for different stream depths
+    new_depot = p4.fetch_depot("-t", f"{depot_type}", f"{depot_name}")
+    p4.input = new_depot
+    return p4.run("depot", "-i")
+
+
+def get_streams(template_depot_name, new_depot_name):
+    exclude_keys = [
+        "Update",
+        "Access",
+        "baseParent",
+        "streamSpecDigest",
+        "firmerThanParent",
+    ]
+    streams = p4.run_streams(
+        "-F", f"Stream=//{template_depot_name}/... | Parent=//{template_depot_name}/..."
+    )
+    streams_details = [p4.run_stream("-o", stream["Stream"])[0] for stream in streams]
+    for stream in streams_details:
+        for key in exclude_keys:
+            stream.pop(key, None)
+        for key in stream:
+            if isinstance(stream[key], str):
+                stream[key] = stream[key].replace(template_depot_name, new_depot_name)
+            elif isinstance(stream[key], list):
+                stream[key] = [
+                    value.replace(template_depot_name, new_depot_name)
+                    for value in stream[key]
+                ]
+
+    # Function to get the parents in order
+    def get_parents(stream):
+        parents = []
+        while stream:
+            parents.insert(0, stream["Stream"])
+            stream = next(
+                (
+                    item
+                    for item in streams_details
+                    if item["Stream"] == stream["Parent"]
+                ),
+                None,
+            )
+        return parents
+
+    # Sorting the list
+    sorted_list = sorted(streams_details, key=lambda x: get_parents(x))
+
+    return sorted_list
+
+
+def create_stream(stream_to_add: dict):
+    p4.input = stream_to_add
+    return p4.run("stream", "-i")
+
+
+def create_branch_map(template_depot_name, new_depot_name):
+    streams = p4.run_streams(
+        "-F", f"Stream=//{template_depot_name}/... | Parent=//{template_depot_name}/..."
+    )
+    branch_view = [
+        f"{stream['Stream']}/... {stream['Stream'].replace(template_depot_name, new_depot_name)}/..."
+        for stream in streams
+    ]
+    branch_map = p4.fetch_branch(f"populate_{new_depot_name}")
+    branch_map["View"] = branch_view
+    print(branch_map)
+    p4.save_branch(branch_map)
+    return branch_map["Branch"]
+
+
+def populate_new_depot(template_depot_name, new_depot_name):
+    print(f"Populating with initial template for {new_depot_name}...")
+    branch_map = create_branch_map(template_depot_name, new_depot_name)
+    p4.run_populate(
+        "-d", f"Populating with initial template for {new_depot_name}", "-b", branch_map
+    )
+    p4.run_branch("-d", branch_map)
 
 
 def check_permissions(new_group_list):
@@ -53,6 +145,13 @@ def check_permissions(new_group_list):
     ]
     print(f"Permissions to add: {len(permissions_to_add)}")
     return permissions_to_add
+
+
+def create_permissions(permissions_to_add):
+    protect_table = p4.run("protect", "-o")[0]
+    protect_table["Protections"] = permissions_to_add + protect_table["Protections"]
+    p4.input = protect_table
+    return p4.run("protect", "-i")
 
 
 def get_template_depots(template_pattern="template"):

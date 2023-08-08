@@ -1,6 +1,8 @@
 import sys
 import csv
 import re
+import os
+from collections import defaultdict
 
 from PyQt6.QtWidgets import (
     QApplication,
@@ -16,13 +18,13 @@ from PyQt6.QtWidgets import (
     QLabel,
     QComboBox,
     QMessageBox,
+    QDialog,
+    QLineEdit,
+    QProgressBar,
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QObject, pyqtSignal, QRunnable, pyqtSlot, QThreadPool
 
 import p4_utils
-
-# TODO: Remove this and run the whole thing from inside P4V or an environment with these set.
-p4_utils.init(username="jadmin", port="ssl:p4.argonautcreations.com:1666")
 
 # r"[^@]+\.[^@]+" will match any standard 2-part domain name for email.
 # EMAIL_DOMAIN can be customized to require a specific domain like, "myuniversity.edu"
@@ -121,7 +123,7 @@ class LoadCsvWindow(QWidget):
 
         # Set up the button box at the bottom of the window
         button_layout = QHBoxLayout()
-        self.next_button = QPushButton("Choose Template")
+        self.next_button = QPushButton("Preview")
         self.next_button.clicked.connect(self.go_to_preview)
         self.next_button.setEnabled(False)
         self.enable_next_if_ready()
@@ -212,13 +214,16 @@ class PreviewWindow(QWidget):
         self.shared_data.users_to_create = p4_utils.check_users(users)
         remaining_licenses = p4_utils.check_remaining_seats()
 
-        group_users = {}
+        group_users = defaultdict(lambda: {"Users": [], "Owners": []})
         for row in self.shared_data.table_data:
-            group_users[row[2]] = group_users.get(row[2], []) + [row[1].split("@")[0]]
+            if row[3] == "True":
+                group_users[row[2]]["Owners"].append(row[1].split("@")[0])
+            group_users[row[2]]["Users"].append(row[1].split("@")[0])
         self.shared_data.groups_to_create = [
             {
                 "Group": group,
-                "Users": group_users[group],
+                "Users": group_users[group]["Users"],
+                "Owners": group_users[group]["Owners"],
             }
             for group in group_users
         ]
@@ -241,8 +246,8 @@ class PreviewWindow(QWidget):
         # Setting up messages
         messages = [
             f"This will create <b>{len(self.shared_data.users_to_create)}</b> new users. (Seats remaining on server: {remaining_licenses})",
-            f"This will create/update <b>{len(self.shared_data.groups_to_create)}</b> new groups.",
-            f"This will create <b>{len(self.shared_data.depots_to_create)}</b> new depots.",
+            f"This will create/update <b>{len(self.shared_data.groups_to_create)}</b> groups.",
+            f"This will create/update <b>{len(self.shared_data.depots_to_create)}</b> depots.",
             f"This will create <b>{len(self.shared_data.permissions_to_create)}</b> new permission lines.",
             f"New depots will be populated from <b>{self.shared_data.template_depot['map']}</b>",
         ]
@@ -279,16 +284,70 @@ class PreviewWindow(QWidget):
         self.parent().push(CreationWindow(self.shared_data))
 
 
+class Signals(QObject):
+    finished = pyqtSignal()
+    progress = pyqtSignal(int)
+
+
+class Creator(QRunnable):
+    def __init__(self, func, list_to_create):
+        super(Creator, self).__init__()
+
+        self.func = func
+        self.list_to_create = list_to_create
+        self.signals = Signals()
+
+    @pyqtSlot()
+    def run(self):
+        self.func(self.list_to_create, self.signals.progress)
+        self.signals.finished.emit()
+
+
 class CreationWindow(QWidget):
     def __init__(self, shared_data, parent=None):
         super().__init__(parent=parent)
         self.shared_data = shared_data
+        self.threadpool = QThreadPool()
 
         # Set up the main Vertical Layout
         main_layout = QVBoxLayout()
         main_layout.addWidget(QLabel("Hello Creation!"))
-        main_layout.addWidget(QLabel(f"{self.shared_data.table_data}"))
+        main_layout.addWidget(
+            QLabel(f"Creating {len(self.shared_data.users_to_create)} Users:")
+        )
+        self.user_progress = QProgressBar(self)
+        self.user_progress.setMaximum(len(self.shared_data.users_to_create))
+        if not self.shared_data.users_to_create:
+            self.user_progress.setMaximum(1)
+            self.user_progress.setValue(1)
+        main_layout.addWidget(self.user_progress)
+        main_layout.addWidget(
+            QLabel(f"Creating {len(self.shared_data.groups_to_create)} Groups:")
+        )
+        self.group_progress = QProgressBar(self)
+        self.group_progress.setMaximum(len(self.shared_data.groups_to_create))
+        main_layout.addWidget(self.group_progress)
         main_layout.addWidget(QLabel(f"{self.shared_data.template_depot}"))
+        main_layout.addWidget(
+            QLabel(f"Creating {len(self.shared_data.depots_to_create)} Depots:")
+        )
+        self.depot_progress = QProgressBar(self)
+        self.depot_progress.setMaximum(len(self.shared_data.depots_to_create))
+        main_layout.addWidget(self.depot_progress)
+        main_layout.addWidget(
+            QLabel(f"Populating {len(self.shared_data.depots_to_create)} Depots:")
+        )
+        self.populate_progress = QProgressBar(self)
+        self.populate_progress.setMaximum(len(self.shared_data.depots_to_create))
+        main_layout.addWidget(self.populate_progress)
+        main_layout.addWidget(
+            QLabel(
+                f"Creating {len(self.shared_data.permissions_to_create)} Permissions:"
+            )
+        )
+        self.permission_progress = QProgressBar(self)
+        self.permission_progress.setMaximum(1)  # This is done in a single step
+        main_layout.addWidget(self.permission_progress)
 
         # Set up the button box at the bottom of the window
         button_layout = QHBoxLayout()
@@ -302,6 +361,87 @@ class CreationWindow(QWidget):
 
         # Set the main layout of the window
         self.setLayout(main_layout)
+
+        self.create_users()
+
+    def create_users_worker(self, users_to_create, progress_callback):
+        for i, user in enumerate(users_to_create):
+            p4_utils.create_user(user)
+            progress_callback.emit(i + 1)
+
+    def create_users(self):
+        print("Create users was called.")
+        if not self.shared_data.users_to_create:
+            self.create_groups()
+            return
+        worker = Creator(self.create_users_worker, self.shared_data.users_to_create)
+        worker.signals.progress.connect(self.user_progress.setValue)
+        worker.signals.finished.connect(self.create_groups)
+        self.threadpool.start(worker)
+
+    def create_groups_worker(self, groups_to_create, progress_callback):
+        for i, group in enumerate(groups_to_create):
+            p4_utils.create_group(group)
+            progress_callback.emit(i + 1)
+
+    def create_groups(self):
+        print("Create groups was called")
+        worker = Creator(self.create_groups_worker, self.shared_data.groups_to_create)
+        worker.signals.progress.connect(self.group_progress.setValue)
+        worker.signals.finished.connect(self.create_depots)
+        self.threadpool.start(worker)
+
+    def create_depots_worker(self, depots_to_create, progress_callback):
+        depot_type = self.shared_data.template_depot["type"]
+        for i, depot_name in enumerate(depots_to_create):
+            p4_utils.create_depot(depot_name, depot_type)
+            streams_to_create = p4_utils.get_streams(
+                self.shared_data.template_depot["name"], depot_name
+            )
+            for stream in streams_to_create:
+                p4_utils.create_stream(stream)
+            progress_callback.emit(i + 1)
+
+    def create_depots(self):
+        print("Create depots was called")
+        worker = Creator(self.create_depots_worker, self.shared_data.depots_to_create)
+        worker.signals.progress.connect(self.depot_progress.setValue)
+        worker.signals.finished.connect(self.populate_depots)
+        self.threadpool.start(worker)
+
+    def populate_depots_worker(self, depots_to_create, progress_callback):
+        for i, depot_name in enumerate(depots_to_create):
+            try:
+                p4_utils.populate_new_depot(
+                    self.shared_data.template_depot["name"], depot_name
+                )
+            except p4_utils.P4Exception as e:
+                print(f"Error populating depot {depot_name}: {e}")
+            progress_callback.emit(i + 1)
+
+    def populate_depots(self):
+        print("Populate depots was called")
+        worker = Creator(self.populate_depots_worker, self.shared_data.depots_to_create)
+        worker.signals.progress.connect(self.populate_progress.setValue)
+        worker.signals.finished.connect(self.create_permissions)
+        self.threadpool.start(worker)
+
+    def create_permissions_worker(self, permissions_to_create, progress_callback):
+        p4_utils.create_permissions(permissions_to_create)
+        progress_callback.emit(1)
+
+    def create_permissions(self):
+        print("Called create permissions")
+        worker = Creator(
+            self.create_permissions_worker, self.shared_data.permissions_to_create
+        )
+        worker.signals.progress.connect(self.permission_progress.setValue)
+        worker.signals.finished.connect(self.complete)
+        self.threadpool.start(worker)
+
+    def complete(self):
+        print("Complete!")
+        self.next_button.setEnabled(True)
 
 
 class StackedWidget(QStackedWidget):
@@ -322,6 +462,63 @@ class StackedWidget(QStackedWidget):
             self.setCurrentWidget(self.widget_stack[-1])
 
 
+class LoginDialog(QDialog):
+    def __init__(self, parent=None):
+        super(LoginDialog, self).__init__(parent)
+
+        self.setWindowTitle("Login")
+        self.resize(500, 300)
+
+        self.layout = QVBoxLayout()
+        self.p4port = QLineEdit()
+        self.p4port.setText(os.environ.get("P4PORT", ""))
+        self.username = QLineEdit()
+        self.username.setText(os.environ.get("P4USER", ""))
+        self.password = QLineEdit()
+        self.password.setEchoMode(QLineEdit.EchoMode.Password)
+        self.login_button = QPushButton("Login")
+        self.login_button.setDefault(True)
+
+        self.layout.addWidget(QLabel("P4PORT:"))
+        self.layout.addWidget(self.p4port)
+        self.layout.addWidget(QLabel("Username:"))
+        self.layout.addWidget(self.username)
+        self.layout.addWidget(QLabel("Password:"))
+        self.layout.addWidget(self.password)
+        self.layout.addWidget(self.login_button)
+
+        self.setLayout(self.layout)
+
+        # Connect the clicked signal of the button to your authentication method
+        self.login_button.clicked.connect(self.authenticate_user)
+
+    def authenticate_user(self):
+        try:
+            p4_utils.init(
+                username=self.username.text(),
+                port=self.p4port.text(),
+                password=self.password.text(),
+            )
+        except p4_utils.P4PasswordException as e:
+            QMessageBox.warning(
+                None, "Incorrect password", "Please re-enter password and try again."
+            )
+            return
+        except p4_utils.P4Exception as e:
+            QMessageBox.warning(
+                None,
+                "Login Failed",
+                f"""Login failed.
+
+Check your port, username, and password and try again.
+
+
+Error message: {e.errors}""",
+            )
+            return
+        self.accept()
+
+
 class MainWindow(QMainWindow):
     def __init__(self, shared_data, parent=None):
         super().__init__(parent=parent)
@@ -330,9 +527,22 @@ class MainWindow(QMainWindow):
         self.resize(1200, 800)
         self.stacked_widget = StackedWidget()
         self.setCentralWidget(self.stacked_widget)
-
+        self.login()
         # Start with just our first widget
         self.stacked_widget.push(LoadCsvWindow(shared_data))
+
+    def login(self):
+        try:
+            p4_utils.init()
+        except p4_utils.P4Exception:
+            login_dialog = LoginDialog(self)
+            result = login_dialog.exec()
+            if result == QDialog.DialogCode.Rejected:
+                self.close()
+                sys.exit()
+            return
+
+        print("Logged in!")
 
 
 if __name__ == "__main__":
