@@ -1,4 +1,11 @@
+import logging
+
 from p4_utils import p4
+
+import logging
+
+# Create a custom logger
+logger = logging.getLogger("main.functions")
 
 
 def check_remaining_seats():
@@ -12,7 +19,7 @@ def check_users(new_user_list):
     users_to_add = [
         user for user in new_user_list if user["User"] not in current_user_names
     ]
-    print(f"Users to add: {len(users_to_add)}")
+    logger.debug(f"Users to add: {len(users_to_add)}")
     return users_to_add
 
 
@@ -28,7 +35,7 @@ def check_groups(new_group_list):
     groups_to_add = [
         group for group in new_group_list if group not in current_group_names
     ]
-    print(f"Groups to add: {len(groups_to_add)}")
+    logger.debug(f"Groups to add: {len(groups_to_add)}")
     return groups_to_add
 
 
@@ -45,8 +52,10 @@ def check_depots(new_group_list):
     depots_to_add = [
         depot for depot in new_group_list if depot not in current_depot_names
     ]
-    print(f"Depots to add: {len(depots_to_add)}")
-    print(f"Existing depots to update: {len(new_group_list) - len(depots_to_add)}")
+    logger.debug(f"Depots to add: {len(depots_to_add)}")
+    logger.debug(
+        f"Existing depots to update: {len(new_group_list) - len(depots_to_add)}"
+    )
     return new_group_list
 
 
@@ -117,13 +126,13 @@ def create_branch_map(template_depot_name, new_depot_name):
     ]
     branch_map = p4.fetch_branch(f"populate_{new_depot_name}")
     branch_map["View"] = branch_view
-    print(branch_map)
+    logger.debug(branch_map)
     p4.save_branch(branch_map)
     return branch_map["Branch"]
 
 
 def populate_new_depot(template_depot_name, new_depot_name):
-    print(f"Populating with initial template for {new_depot_name}...")
+    logger.debug(f"Populating with initial template for {new_depot_name}...")
     branch_map = create_branch_map(template_depot_name, new_depot_name)
     p4.run_populate(
         "-d", f"Populating with initial template for {new_depot_name}", "-b", branch_map
@@ -143,7 +152,7 @@ def check_permissions(new_group_list):
         for permission in new_permissions
         if permission not in current_permissions
     ]
-    print(f"Permissions to add: {len(permissions_to_add)}")
+    logger.debug(f"Permissions to add: {len(permissions_to_add)}")
     return permissions_to_add
 
 

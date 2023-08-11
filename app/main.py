@@ -2,6 +2,8 @@ import sys
 import csv
 import re
 import os
+import logging
+from pathlib import Path
 from collections import defaultdict
 
 from PyQt6.QtWidgets import (
@@ -25,6 +27,37 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QObject, pyqtSignal, QRunnable, pyqtSlot, QThreadPool
 
 import p4_utils
+
+
+# Create a custom logger
+logger = logging.getLogger("main")
+logger.setLevel(logging.DEBUG)
+
+LOG_FILE = "log.txt"
+
+
+def setup_logger():
+    # Create handlers
+    c_handler = logging.StreamHandler()
+    f_handler = logging.FileHandler(LOG_FILE)
+
+    # Set level of logging
+    c_handler.setLevel(logging.INFO)
+    f_handler.setLevel(logging.DEBUG)
+
+    # Create formatters and add it to handlers
+    c_format = logging.Formatter("[%(levelname)s]: %(message)s")
+    f_format = logging.Formatter("%(asctime)s - %(levelname)s - %(name)s - %(message)s")
+    c_handler.setFormatter(c_format)
+    f_handler.setFormatter(f_format)
+
+    # Add handlers to the logger
+    logger.addHandler(c_handler)
+    logger.addHandler(f_handler)
+
+
+setup_logger()
+
 
 # r"[^@]+\.[^@]+" will match any standard 2-part domain name for email.
 # EMAIL_DOMAIN can be customized to require a specific domain like, "myuniversity.edu"
@@ -61,7 +94,7 @@ class CSV_VALIDATION_ERROR(Exception):
 def validate_csv_row(i: int, row: list) -> list:
     formatted_row = []
     for column, data in enumerate(row):
-        print(
+        logger.debug(
             f"Checking [{i},{column}] {data} against {CSV_FIELDS[column]['label']} validation function..."
         )
         formatted_data = CSV_FIELDS[column]["validation"](data.strip())
@@ -147,22 +180,22 @@ class LoadCsvWindow(QWidget):
             self.table.setRowCount(0)
             start_index = 0
             if reader[0][0].lower() == CSV_FIELDS[0]["label"].lower():
-                print("Skipping header row.")
+                logger.debug("Skipping header row.")
                 start_index = 1
             for row_number, row_data in enumerate(reader[start_index:]):
-                print(f"Processing row {row_number}")
+                logger.debug(f"Processing row {row_number}")
                 try:
                     row_data = validate_csv_row(row_number, row_data)
                 except CSV_VALIDATION_ERROR as e:
                     QMessageBox.warning(None, "Invalid CSV Entry", str(e))
-                    print(f"Invalid CSV Entry: {e}")
+                    logger.error(f"Invalid CSV Entry: {e}")
                     return
                 if not row_data:
                     continue
                 self.table.insertRow(row_number)
                 self.shared_data.table_data.append(row_data)
                 for column_number, data in enumerate(row_data):
-                    print(f"Row data: {data}", end=" ")
+                    logger.debug(f"Row data: {data}")
                     self.table.setItem(
                         row_number, column_number, QTableWidgetItem(str(data))
                     )
@@ -200,8 +233,8 @@ class PreviewWindow(QWidget):
         super().__init__(parent=parent)
         self.shared_data = shared_data
 
-        print("Setup Data:")
-        print(self.shared_data)
+        logger.debug("Setup Data:")
+        logger.debug(self.shared_data)
 
         users = [
             {
@@ -311,7 +344,13 @@ class CreationWindow(QWidget):
 
         # Set up the main Vertical Layout
         main_layout = QVBoxLayout()
-        main_layout.addWidget(QLabel("Hello Creation!"))
+
+        # Adding label widget - Creation Summary
+        heading_label = QLabel("Creation Summary")
+        heading_label.setStyleSheet("font-size: 18px; font-weight: bold;")
+        main_layout.addWidget(heading_label)
+
+        # __USERS__
         main_layout.addWidget(
             QLabel(f"Creating {len(self.shared_data.users_to_create)} Users:")
         )
@@ -321,25 +360,32 @@ class CreationWindow(QWidget):
             self.user_progress.setMaximum(1)
             self.user_progress.setValue(1)
         main_layout.addWidget(self.user_progress)
+
+        # __GROUPS__
         main_layout.addWidget(
             QLabel(f"Creating {len(self.shared_data.groups_to_create)} Groups:")
         )
         self.group_progress = QProgressBar(self)
         self.group_progress.setMaximum(len(self.shared_data.groups_to_create))
         main_layout.addWidget(self.group_progress)
-        main_layout.addWidget(QLabel(f"{self.shared_data.template_depot}"))
+
+        # __DEPOTS__
         main_layout.addWidget(
             QLabel(f"Creating {len(self.shared_data.depots_to_create)} Depots:")
         )
         self.depot_progress = QProgressBar(self)
         self.depot_progress.setMaximum(len(self.shared_data.depots_to_create))
         main_layout.addWidget(self.depot_progress)
+
+        # __POPULATE DEPOTS__
         main_layout.addWidget(
             QLabel(f"Populating {len(self.shared_data.depots_to_create)} Depots:")
         )
         self.populate_progress = QProgressBar(self)
         self.populate_progress.setMaximum(len(self.shared_data.depots_to_create))
         main_layout.addWidget(self.populate_progress)
+
+        # __PERMISSIONS__
         main_layout.addWidget(
             QLabel(
                 f"Creating {len(self.shared_data.permissions_to_create)} Permissions:"
@@ -370,7 +416,7 @@ class CreationWindow(QWidget):
             progress_callback.emit(i + 1)
 
     def create_users(self):
-        print("Create users was called.")
+        logger.debug("Create users was called.")
         if not self.shared_data.users_to_create:
             self.create_groups()
             return
@@ -385,7 +431,7 @@ class CreationWindow(QWidget):
             progress_callback.emit(i + 1)
 
     def create_groups(self):
-        print("Create groups was called")
+        logger.debug("Create groups was called")
         worker = Creator(self.create_groups_worker, self.shared_data.groups_to_create)
         worker.signals.progress.connect(self.group_progress.setValue)
         worker.signals.finished.connect(self.create_depots)
@@ -403,7 +449,7 @@ class CreationWindow(QWidget):
             progress_callback.emit(i + 1)
 
     def create_depots(self):
-        print("Create depots was called")
+        logger.debug("Create depots was called")
         worker = Creator(self.create_depots_worker, self.shared_data.depots_to_create)
         worker.signals.progress.connect(self.depot_progress.setValue)
         worker.signals.finished.connect(self.populate_depots)
@@ -416,11 +462,11 @@ class CreationWindow(QWidget):
                     self.shared_data.template_depot["name"], depot_name
                 )
             except p4_utils.P4Exception as e:
-                print(f"Error populating depot {depot_name}: {e}")
+                logger.warning(f"Error populating depot {depot_name}: {e}")
             progress_callback.emit(i + 1)
 
     def populate_depots(self):
-        print("Populate depots was called")
+        logger.debug("Populate depots was called")
         worker = Creator(self.populate_depots_worker, self.shared_data.depots_to_create)
         worker.signals.progress.connect(self.populate_progress.setValue)
         worker.signals.finished.connect(self.create_permissions)
@@ -431,7 +477,7 @@ class CreationWindow(QWidget):
         progress_callback.emit(1)
 
     def create_permissions(self):
-        print("Called create permissions")
+        logger.debug("Called create permissions")
         worker = Creator(
             self.create_permissions_worker, self.shared_data.permissions_to_create
         )
@@ -440,7 +486,7 @@ class CreationWindow(QWidget):
         self.threadpool.start(worker)
 
     def complete(self):
-        print("Complete!")
+        logger.debug("Complete!")
         self.next_button.setEnabled(True)
 
 
@@ -542,10 +588,12 @@ class MainWindow(QMainWindow):
                 sys.exit()
             return
 
-        print("Logged in!")
+        logger.debug("Logged in!")
 
 
 if __name__ == "__main__":
+    logger.info(f"Log file location: {Path(LOG_FILE).absolute()}")
+
     app = QApplication(sys.argv)
     shared_data = SharedData()
     window = MainWindow(shared_data)

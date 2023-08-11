@@ -1,3 +1,4 @@
 .env/
 __pycache__/
 [Ee]xperiment*
+log.txt
