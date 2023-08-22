@@ -3,6 +3,8 @@ import csv
 import re
 import os
 import logging
+import configparser
+import argparse
 from datetime import datetime
 from pathlib import Path
 from collections import defaultdict
@@ -36,16 +38,17 @@ logger.setLevel(logging.DEBUG)
 
 LOG_FILE = "log.txt"
 UNDO_FILE = datetime.now().strftime("undo_commands_%Y-%m-%d_%H-%M-%S.txt")
+CONFIG_FILE = Path("config.ini")
 
 
-def setup_logger():
+def setup_logger(console_level=logging.INFO, file_level=logging.DEBUG):
     # Create handlers
     c_handler = logging.StreamHandler()
     f_handler = logging.FileHandler(LOG_FILE)
 
     # Set level of logging
-    c_handler.setLevel(logging.INFO)
-    f_handler.setLevel(logging.DEBUG)
+    c_handler.setLevel(console_level)
+    f_handler.setLevel(file_level)
 
     # Create formatters and add it to handlers
     c_format = logging.Formatter("[%(levelname)s]: %(message)s")
@@ -58,7 +61,16 @@ def setup_logger():
     logger.addHandler(f_handler)
 
 
-setup_logger()
+def read_config(parameter, fallback=None):
+    if CONFIG_FILE.exists():
+        logger.debug(f"Reading config file {CONFIG_FILE}")
+        config = configparser.ConfigParser()
+        config.read(CONFIG_FILE)
+        result = config.get("DEFAULT", parameter, fallback=fallback)
+        logger.debug(f"{parameter} = '{result or fallback}'")
+        return result or fallback
+    logger.debug(f"No config file found. Using fallback: {fallback}")
+    return fallback
 
 
 # r"[^@]+\.[^@]+" will match any standard 2-part domain name for email.
@@ -102,7 +114,7 @@ def validate_csv_row(i: int, row: list) -> list:
         formatted_data = CSV_FIELDS[column]["validation"](data.strip())
         if formatted_data is None:
             raise CSV_VALIDATION_ERROR(
-                f"Validation failed in csv data for row {i}: \n{row} \nValue: '{data}' failed validation for field type '{CSV_FIELDS[column]['label']}'."
+                f"CSV row invalid: \n{row} \n\n'{data}' is not a valid '{CSV_FIELDS[column]['label']}'."
             )
         formatted_row.append(formatted_data)
     return formatted_row
@@ -159,7 +171,7 @@ class LoadCsvWindow(QWidget):
 
         # Set up the button box at the bottom of the window
         button_layout = QHBoxLayout()
-        self.next_button = QPushButton("Preview")
+        self.next_button = QPushButton("Go to Creation Page")
         self.next_button.clicked.connect(self.go_to_creation)
         self.next_button.setEnabled(False)
         self.enable_next_if_ready()
@@ -230,95 +242,6 @@ class LoadCsvWindow(QWidget):
         self.enable_next_if_ready()
 
 
-class PreviewWindow(QWidget):
-    def __init__(self, shared_data, parent=None):
-        super().__init__(parent=parent)
-        self.shared_data = shared_data
-
-        logger.debug("Setup Data:")
-        logger.debug(self.shared_data)
-
-        users = [
-            {
-                "User": row[1].split("@")[0],
-                "Email": row[1],
-                "FullName": row[0],
-            }
-            for row in self.shared_data.table_data
-        ]
-        self.shared_data.users_to_create = p4_utils.check_users(users)
-        remaining_licenses = p4_utils.check_remaining_seats()
-
-        group_users = defaultdict(lambda: {"Users": [], "Owners": []})
-        for row in self.shared_data.table_data:
-            if row[3] == "True":
-                group_users[row[2]]["Owners"].append(row[1].split("@")[0])
-            group_users[row[2]]["Users"].append(row[1].split("@")[0])
-        self.shared_data.groups_to_create = [
-            {
-                "Group": group,
-                "Users": group_users[group]["Users"],
-                "Owners": group_users[group]["Owners"],
-            }
-            for group in group_users
-        ]
-        unique_depots = list(group_users)
-        self.shared_data.depots_to_create = p4_utils.check_depots(unique_depots)
-
-        self.shared_data.permissions_to_create = p4_utils.check_permissions(
-            unique_depots
-        )
-
-        # Set up the main Vertical Layout
-        main_layout = QVBoxLayout()
-        main_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
-
-        # Adding label widget - Creation Summary
-        heading_label = QLabel("Creation Summary")
-        heading_label.setStyleSheet("font-size: 18px; font-weight: bold;")
-        main_layout.addWidget(heading_label)
-
-        # Setting up messages
-        messages = [
-            f"This will create <b>{len(self.shared_data.users_to_create)}</b> new users. (Seats remaining on server: {remaining_licenses})",
-            f"This will create/update <b>{len(self.shared_data.groups_to_create)}</b> groups.",
-            f"This will create/update <b>{len(self.shared_data.depots_to_create)}</b> depots.",
-            f"This will create <b>{len(self.shared_data.permissions_to_create)}</b> new permission lines.",
-            f"New depots will be populated from <b>{self.shared_data.template_depot['map']}</b>",
-        ]
-
-        # Looping through messages and adding to layout
-        for message in messages:
-            label = QLabel(message)
-            label.setStyleSheet("font-size: 14px; margin-bottom: 10px;")
-            main_layout.addWidget(label)
-
-        # Additional information
-        label_info = QLabel("Press 'Create All' if this looks correct.")
-        label_info.setStyleSheet(
-            "font-size: 16px; font-style: italic; margin-top: 20px;"
-        )
-        main_layout.addWidget(label_info)
-
-        # Set up the button box at the bottom of the window
-        main_layout.addStretch(1)
-
-        button_layout = QHBoxLayout()
-        self.back_button = QPushButton("Back")
-        self.back_button.clicked.connect(lambda: self.parent().pop())
-        button_layout.addWidget(self.back_button)
-        self.next_button = QPushButton("Create All")
-        self.next_button.clicked.connect(self.go_to_creation)
-        button_layout.addWidget(self.next_button)
-        main_layout.addLayout(button_layout)
-
-        # Set the main layout of the window
-        self.setLayout(main_layout)
-
-    def go_to_creation(self):
-        self.parent().push(CreationWindow(self.shared_data))
-
-
 class Signals(QObject):
     finished = pyqtSignal()
     progress = pyqtSignal(int)
@@ -375,7 +298,7 @@ class CombinedWindow(QWidget):
             label_text=f"Creating {len(self.shared_data.permissions_to_create)} Permissions:",
             button_text="Create Permissions",
             button_method=self.create_permissions,
-            item_count=len(self.shared_data.permissions_to_create),
+            item_count=1 if self.shared_data.permissions_to_create else 0,
         )
 
         # __DEPOTS__
@@ -549,7 +472,7 @@ class CombinedWindow(QWidget):
             self.create_permissions_worker, self.shared_data.permissions_to_create
         )
         worker.signals.progress.connect(self.permission_progress.setValue)
-        worker.signals.finished.connect(self.complete)
+        worker.signals.finished.connect(self.permissions_complete)
         self.threadpool.start(worker)
 
     def create_permissions_worker(self, permissions_to_create, progress_callback):
@@ -736,11 +659,31 @@ class MainWindow(QMainWindow):
         logger.debug("Logged in!")
 
 
-if __name__ == "__main__":
+def main():
+    global EMAIL_DOMAIN
+    parser = argparse.ArgumentParser(
+        description="Bulk create users, groups, depots, permissions, and populate from a template depot."
+    )
+    parser.add_argument(
+        "-v",
+        "--verbose",
+        action="store_true",
+        help="Enable verbose logging in console.",
+    )
+    args = parser.parse_args()
+    setup_logger(logging.DEBUG if args.verbose else logging.INFO)
+
     logger.info(f"Log file location: {Path(LOG_FILE).absolute()}")
+    logger.info(f"UNDO file location: {Path(UNDO_FILE).absolute()}")
+
+    EMAIL_DOMAIN = read_config("EMAIL_DOMAIN", fallback=EMAIL_DOMAIN)
 
     app = QApplication(sys.argv)
     shared_data = SharedData()
     window = MainWindow(shared_data)
     window.show()
     sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()
