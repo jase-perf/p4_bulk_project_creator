@@ -28,15 +28,11 @@ def create_user(user_to_add: dict):
     return p4.run("user", "-f", "-i")
 
 
-def check_groups(new_group_list):
+def get_existing_groups():
     """Check if the groups in group_list exist in the Perforce server."""
     current_groups = p4.run("groups")
-    current_group_names = [group["group"] for group in current_groups]
-    groups_to_add = [
-        group for group in new_group_list if group not in current_group_names
-    ]
-    logger.debug(f"Groups to add: {len(groups_to_add)}")
-    return groups_to_add
+    current_group_names = {group["group"] for group in current_groups}
+    return [p4.run_group("-o", group_name)[0] for group_name in current_group_names]
 
 
 def create_group(group_to_add: dict):
@@ -49,14 +45,13 @@ def check_depots(new_group_list):
     """Check if the depots in depot_list exist in the Perforce server."""
     current_depots = p4.run("depots")
     current_depot_names = [depot["name"] for depot in current_depots]
+    logger.debug(f"Current depots: {current_depot_names}")
+    logger.debug(f"New depot names: {new_group_list}")
     depots_to_add = [
         depot for depot in new_group_list if depot not in current_depot_names
     ]
     logger.debug(f"Depots to add: {len(depots_to_add)}")
-    logger.debug(
-        f"Existing depots to update: {len(new_group_list) - len(depots_to_add)}"
-    )
-    return new_group_list
+    return depots_to_add
 
 
 def create_depot(depot_name, depot_type):
@@ -116,28 +111,33 @@ def create_stream(stream_to_add: dict):
     return p4.run("stream", "-i")
 
 
-def create_branch_map(template_depot_name, new_depot_name):
+def create_branch_maps(template_depot_name, new_depot_name):
     streams = p4.run_streams(
         "-F", f"Stream=//{template_depot_name}/... | Parent=//{template_depot_name}/..."
     )
-    branch_view = [
-        f"{stream['Stream']}/... {stream['Stream'].replace(template_depot_name, new_depot_name)}/..."
-        for stream in streams
-    ]
-    branch_map = p4.fetch_branch(f"populate_{new_depot_name}")
-    branch_map["View"] = branch_view
-    logger.debug(branch_map)
-    p4.save_branch(branch_map)
-    return branch_map["Branch"]
+    branch_maps = []
+    for stream in streams:
+        branch_map = p4.fetch_branch(f"populate_{new_depot_name}_{stream['Stream']}")
+        branch_map["View"] = [
+            f"{stream['Stream']}/... {stream['Stream'].replace(template_depot_name, new_depot_name)}/..."
+        ]
+        logger.debug(branch_map)
+        p4.save_branch(branch_map)
+        branch_maps.append(branch_map["Branch"])
+    return branch_maps
 
 
 def populate_new_depot(template_depot_name, new_depot_name):
     logger.debug(f"Populating with initial template for {new_depot_name}...")
-    branch_map = create_branch_map(template_depot_name, new_depot_name)
-    p4.run_populate(
-        "-d", f"Populating with initial template for {new_depot_name}", "-b", branch_map
-    )
-    p4.run_branch("-d", branch_map)
+    branch_maps = create_branch_maps(template_depot_name, new_depot_name)
+    for branch_map in branch_maps:
+        p4.run_populate(
+            "-d",
+            f"Populating with initial template for {new_depot_name}",
+            "-b",
+            branch_map,
+        )
+        p4.run_branch("-d", branch_map)
 
 
 def check_permissions(new_group_list):
