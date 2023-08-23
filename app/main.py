@@ -76,6 +76,7 @@ def read_config(parameter, fallback=None):
 # r"[^@]+\.[^@]+" will match any standard 2-part domain name for email.
 # EMAIL_DOMAIN can be customized to require a specific domain like, "myuniversity.edu"
 EMAIL_DOMAIN = r"[^@]+\.[^@]+"
+DEFAULT_PASSWORD = "ChangeMe123!"
 CSV_FIELDS = [
     {"label": "Name", "validation": lambda s: s or None},
     {
@@ -427,6 +428,8 @@ class CombinedWindow(QWidget):
         for i, user in enumerate(users_to_create):
             logger.debug(f"User ({i+1}/{len(users_to_create)}) {user}")
             p4_utils.create_user(user)
+            pw_res = p4_utils.set_initial_password(user["User"], DEFAULT_PASSWORD)
+            logger.debug(f"Password set: {pw_res}")
             progress_callback.emit(i + 1)
 
     def users_complete(self):
@@ -661,6 +664,7 @@ class MainWindow(QMainWindow):
 
 def main():
     global EMAIL_DOMAIN
+    global DEFAULT_PASSWORD
     parser = argparse.ArgumentParser(
         description="Bulk create users, groups, depots, permissions, and populate from a template depot."
     )
@@ -677,6 +681,7 @@ def main():
     logger.info(f"UNDO file location: {Path(UNDO_FILE).absolute()}")
 
     EMAIL_DOMAIN = read_config("EMAIL_DOMAIN", fallback=EMAIL_DOMAIN)
+    DEFAULT_PASSWORD = read_config("DEFAULT_PASSWORD", fallback=DEFAULT_PASSWORD)
 
     app = QApplication(sys.argv)
     shared_data = SharedData()

@@ -28,6 +28,12 @@ def create_user(user_to_add: dict):
     return p4.run("user", "-f", "-i")
 
 
+def set_initial_password(user: str, password: str):
+    p4.input = password
+    p4.run("passwd", user)
+    return p4.run("admin", "resetpassword", "-u", user)
+
+
 def get_existing_groups():
     """Check if the groups in group_list exist in the Perforce server."""
     current_groups = p4.run("groups")

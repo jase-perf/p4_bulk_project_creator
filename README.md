@@ -40,15 +40,21 @@ Clone the repo and run `pip install -r requirements.txt`
 This will install the p4python api and PyQt6.
 
 ## Configuration
-The `config.ini` file can be edited to add a custom email domain.
+The `config.ini` file can be edited to add a custom email domain and custom initial password for created users.
+
 By default, any standard email address will be accepted.
 
-For example, if you wanted to only validate email addresses that end in @myuniversity.edu, set the `config.ini` file to:
+By default, the initial password for all users will be `ChangeMe123!`.
+
+For example, if you wanted to only validate email addresses that end in @myuniversity.edu, and change the default password to "myUniversitySecret#45" set the `config.ini` file to:
 
 ```
 [DEFAULT]
 EMAIL_DOMAIN = myuniversity.edu
+DEFAULT_PASSWORD = myUniversitySecret#45
 ```
+
+**Users will be forced to change their password when they first login**
 
 ## Notes
 - Server must be 2022.1 or higher for the undo commands to work properly when removing streams.
