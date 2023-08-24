@@ -1,0 +1,1 @@
+pyinstaller --onefile --windowed -i .\images\bulk_creator_icon.ico --distpath .\bin -n "P4 Bulk Creator" .\app\main.py
