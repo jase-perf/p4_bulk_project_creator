@@ -3,3 +3,4 @@ __pycache__/
 [Ee]xperiment*
 log.txt
 undo_commands_*
+build/
