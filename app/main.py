@@ -15,6 +15,7 @@ from PyQt6.QtWidgets import (
     QStackedWidget,
     QTableWidget,
     QTableWidgetItem,
+    QHeaderView,
     QVBoxLayout,
     QHBoxLayout,
     QWidget,
@@ -150,6 +151,11 @@ class LoadCsvWindow(QWidget):
         self.table = QTableWidget()
         self.table.setColumnCount(len(CSV_FIELDS))
         self.table.setHorizontalHeaderLabels([field["label"] for field in CSV_FIELDS])
+        header = self.table.horizontalHeader()
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         main_layout.addWidget(self.table)
 
         # Select the template Depot:
@@ -277,6 +283,12 @@ class CombinedWindow(QWidget):
         heading_label = QLabel("Creation Summary")
         heading_label.setStyleSheet("font-size: 18px; font-weight: bold;")
         self.main_layout.addWidget(heading_label)
+
+        # Add message about log and undo files
+        undo_label = QLabel(f"Undo commands will be written to <code>{Path(UNDO_FILE).absolute()}</code>")
+        self.main_layout.addWidget(undo_label)
+        log_label = QLabel(f"Log file location: <code>{Path(LOG_FILE).absolute()}</code>")
+        self.main_layout.addWidget(log_label)
 
         # __USERS__
         self.user_button, self.user_progress = self.create_widgets(
@@ -641,7 +653,7 @@ class MainWindow(QMainWindow):
         super().__init__(parent=parent)
         self.shared_data = shared_data
         self.setWindowTitle("Create Projects from CSV")
-        self.resize(1200, 800)
+        self.resize(900, 600)
         self.stacked_widget = StackedWidget()
         self.setCentralWidget(self.stacked_widget)
         self.login()
