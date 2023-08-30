@@ -1,6 +1,6 @@
 import logging
 
-from p4_utils import p4
+from p4_utils import p4, P4Exception
 
 import logging
 
@@ -38,7 +38,13 @@ def get_existing_groups():
     """Check if the groups in group_list exist in the Perforce server."""
     current_groups = p4.run("groups")
     current_group_names = {group["group"] for group in current_groups}
-    return [p4.run_group("-o", group_name)[0] for group_name in current_group_names]
+    existing_groups_data = []
+    for group_name in current_group_names:
+        try:
+            existing_groups_data.append(p4.run_group("-o", group_name)[0])
+        except P4Exception as e:
+            logger.error(e)
+    return existing_groups_data
 
 
 def create_group(group_to_add: dict):
