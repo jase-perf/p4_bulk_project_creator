@@ -358,7 +358,11 @@ class CombinedWindow(QWidget):
         ]
         self.shared_data.users_to_create = p4_utils.check_users(users)
         logger.debug(f"Users to create: {self.shared_data.users_to_create}")
-        self.shared_data.remaining_licenses = p4_utils.check_remaining_seats()
+        try:
+            self.shared_data.remaining_licenses = p4_utils.check_remaining_seats()
+        except p4_utils.P4Exception as e:
+            logger.error(f"Unable to check remaining seats: {e}")
+            self.shared_data.remaining_licenses = 0
 
         # ____________GROUPS____________
         existing_groups = p4_utils.get_existing_groups()
