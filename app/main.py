@@ -77,24 +77,28 @@ def read_config(parameter, fallback=None):
 # r"[^@]+\.[^@]+" will match any standard 2-part domain name for email.
 # EMAIL_DOMAIN can be customized to require a specific domain like, "myuniversity.edu"
 EMAIL_DOMAIN = r"[^@]+\.[^@]+"
-DEFAULT_PASSWORD = "ChangeMe123!"
+# If DEFAULT_PASSWORD is empty or less than 8 chars, no password will be set
+# and the user will be prompted to create one at first login.
+DEFAULT_PASSWORD = ""
 CSV_FIELDS = [
     {"label": "Name", "validation": lambda s: s or None},
     {
         "label": "E-mail",
-        "validation": lambda s: s
-        if bool(re.match(rf"[^@]+@{EMAIL_DOMAIN}", s))
-        else None,
+        "validation": lambda s: (
+            s if bool(re.match(rf"[^@]+@{EMAIL_DOMAIN}", s)) else None
+        ),
     },
     {
         "label": "Group",
-        "validation": lambda s: s
-        if bool(
-            re.match(r"^(?!-)[\w]+$", s, re.UNICODE)
-            and not s.isnumeric()
-            and all(c not in "/,.*%" for c in s)
-        )
-        else None,
+        "validation": lambda s: (
+            s
+            if bool(
+                re.match(r"^(?!-)[\w]+$", s, re.UNICODE)
+                and not s.isnumeric()
+                and all(c not in "/,.*%" for c in s)
+            )
+            else None
+        ),
     },
     {
         "label": "Owner",
@@ -125,7 +129,6 @@ def validate_csv_row(i: int, row: list) -> list:
 class SharedData:
     def __init__(self):
         self.table_data = []
-        self.template_depot = None
         self.undo_commands = []
 
 
@@ -158,24 +161,6 @@ class LoadCsvWindow(QWidget):
         header.setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
         main_layout.addWidget(self.table)
 
-        # Select the template Depot:
-        main_layout.addWidget(
-            QLabel("Select template depot to use for all new depots:")
-        )
-        main_layout.addWidget(
-            QLabel(
-                '(Template depots must include "template" in the name to show up here.)'
-            )
-        )
-        self.template_combo = QComboBox(self)
-        self.template_depots = p4_utils.get_template_depots()
-        self.shared_data.template_depot = (
-            self.template_depots[0] if self.template_depots else None
-        )
-        self.template_combo.addItems([depot["name"] for depot in self.template_depots])
-        self.template_combo.currentIndexChanged.connect(self.set_template_depot)
-        main_layout.addWidget(self.template_combo)
-
         # Set up the button box at the bottom of the window
         button_layout = QHBoxLayout()
         self.next_button = QPushButton("Go to Creation Page")
@@ -197,6 +182,7 @@ class LoadCsvWindow(QWidget):
 
     def load_csv_data(self, filename):
         self.shared_data.table_data = []
+        self.next_button.setEnabled(False)
         with open(filename, "r", encoding="utf-8-sig") as csv_file:
             reader = list(csv.reader(csv_file, delimiter=",", quotechar='"'))
             self.table.setRowCount(0)
@@ -226,12 +212,12 @@ class LoadCsvWindow(QWidget):
             self.enable_next_if_ready()
 
     def enable_next_if_ready(self):
-        if (
-            len(self.shared_data.table_data) > 0
-            and len(self.shared_data.table_data[0]) == len(CSV_FIELDS)
-            and self.shared_data.template_depot
-        ):
+        if len(self.shared_data.table_data) > 0 and len(
+            self.shared_data.table_data[0]
+        ) == len(CSV_FIELDS):
             self.next_button.setEnabled(True)
+        else:
+            self.next_button.setEnabled(False)
 
     def go_to_creation(self):
         self.shared_data.table_data = []
@@ -243,10 +229,6 @@ class LoadCsvWindow(QWidget):
             self.shared_data.table_data.append(row_data)
 
         self.parent().push(CombinedWindow(self.shared_data))
-
-    def set_template_depot(self, index):
-        self.shared_data.template_depot = self.template_depots[index]
-        self.enable_next_if_ready()
 
 
 class Signals(QObject):
@@ -285,9 +267,13 @@ class CombinedWindow(QWidget):
         self.main_layout.addWidget(heading_label)
 
         # Add message about log and undo files
-        undo_label = QLabel(f"Undo commands will be written to <code>{Path(UNDO_FILE).absolute()}</code>")
+        undo_label = QLabel(
+            f"Undo commands will be written to <code>{Path(UNDO_FILE).absolute()}</code>"
+        )
         self.main_layout.addWidget(undo_label)
-        log_label = QLabel(f"Log file location: <code>{Path(LOG_FILE).absolute()}</code>")
+        log_label = QLabel(
+            f"Log file location: <code>{Path(LOG_FILE).absolute()}</code>"
+        )
         self.main_layout.addWidget(log_label)
 
         # __USERS__
@@ -305,31 +291,6 @@ class CombinedWindow(QWidget):
             button_method=self.create_groups,
             item_count=len(self.shared_data.groups_to_process),
         )
-
-        # __PERMISSIONS__
-        self.permission_button, self.permission_progress = self.create_widgets(
-            label_text=f"Creating {len(self.shared_data.permissions_to_create)} Permissions:",
-            button_text="Create Permissions",
-            button_method=self.create_permissions,
-            item_count=1 if self.shared_data.permissions_to_create else 0,
-        )
-
-        # __DEPOTS__
-        self.depot_button, self.depot_progress = self.create_widgets(
-            label_text=f"Creating {len(self.shared_data.depots_to_create)} Depots:",
-            button_text="Create Depots",
-            button_method=self.create_depots,
-            item_count=len(self.shared_data.depots_to_create),
-        )
-
-        # __POPULATE DEPOTS__
-        self.populate_button, self.populate_progress = self.create_widgets(
-            label_text=f"Populating {len(self.shared_data.depots_to_create)} Depots:",
-            button_text="Awaiting Depots",
-            button_method=self.populate_depots,
-            item_count=len(self.shared_data.depots_to_create),
-        )
-        self.populate_button.setEnabled(False)
 
         # Set up the button box at the bottom of the window
         button_layout = QHBoxLayout()
@@ -444,8 +405,9 @@ class CombinedWindow(QWidget):
         for i, user in enumerate(users_to_create):
             logger.debug(f"User ({i+1}/{len(users_to_create)}) {user}")
             p4_utils.create_user(user)
-            pw_res = p4_utils.set_initial_password(user["User"], DEFAULT_PASSWORD)
-            logger.debug(f"Password set: {pw_res}")
+            if len(DEFAULT_PASSWORD) >= 8:
+                pw_res = p4_utils.set_initial_password(user["User"], DEFAULT_PASSWORD)
+                logger.debug(f"Password set: {pw_res}")
             progress_callback.emit(i + 1)
 
     def users_complete(self):
@@ -483,94 +445,6 @@ class CombinedWindow(QWidget):
         self.shared_data.undo_commands.extend(undo_commands)
         self.write_undo_file()
         logger.debug(f"Groups created. Undo commands below:\n{undo_commands_str}")
-
-    def create_permissions(self):
-        logger.debug("Called create permissions")
-        self.permission_button.setEnabled(False)
-        worker = Creator(
-            self.create_permissions_worker, self.shared_data.permissions_to_create
-        )
-        worker.signals.progress.connect(self.permission_progress.setValue)
-        worker.signals.finished.connect(self.permissions_complete)
-        self.threadpool.start(worker)
-
-    def create_permissions_worker(self, permissions_to_create, progress_callback):
-        p4_utils.create_permissions(permissions_to_create)
-        progress_callback.emit(1)
-
-    def permissions_complete(self):
-        self.permission_button.setText("Done")
-        self.permission_button.setEnabled(False)
-        added_lines = "\n".join(self.shared_data.permissions_to_create)
-        logger.debug(
-            f"Permissions created. New lines below. Deleting groups with -dF command should remove permissions lines:\n{added_lines}"
-        )
-
-    def create_depots(self):
-        logger.debug("Create depots was called")
-        self.depot_button.setEnabled(False)
-        worker = Creator(self.create_depots_worker, self.shared_data.depots_to_create)
-        worker.signals.progress.connect(self.depot_progress.setValue)
-        worker.signals.finished.connect(self.depots_complete)
-        self.threadpool.start(worker)
-
-    def create_depots_worker(self, depots_to_create, progress_callback):
-        depot_type = self.shared_data.template_depot["type"]
-        self.depot_undo = {}
-        for i, depot_name in enumerate(depots_to_create):
-            p4_utils.create_depot(depot_name, depot_type)
-            streams_to_create = p4_utils.get_streams(
-                self.shared_data.template_depot["name"], depot_name
-            )
-            for stream in streams_to_create:
-                p4_utils.create_stream(stream)
-            created_streams = [stream["Stream"] for stream in streams_to_create]
-            logger.debug(f"Created depot {depot_name} with streams {created_streams}")
-            self.depot_undo[depot_name] = reversed(created_streams)
-            progress_callback.emit(i + 1)
-
-    def depots_complete(self):
-        self.depot_button.setText("Done")
-        self.depot_button.setEnabled(False)
-        self.populate_button.setText("Populate Depots")
-        self.populate_button.setEnabled(True)
-        undo_commands = []
-        for depot_name, streams in self.depot_undo.items():
-            undo_commands.extend(
-                f"p4 stream --obliterate -y {stream}" for stream in streams
-            )
-            undo_commands.extend(
-                (
-                    f"p4 obliterate -y //{depot_name}/...",
-                    f"p4 depot -d {depot_name}",
-                )
-            )
-        self.shared_data.undo_commands.extend(undo_commands)
-        self.write_undo_file()
-        undo_commands_str = "\n".join(undo_commands)
-        logger.debug(f"Depots created. Undo commands below:\n{undo_commands_str}")
-
-    def populate_depots(self):
-        logger.debug("Populate depots was called")
-        self.populate_button.setEnabled(False)
-        worker = Creator(self.populate_depots_worker, self.shared_data.depots_to_create)
-        worker.signals.progress.connect(self.populate_progress.setValue)
-        worker.signals.finished.connect(self.populate_complete)
-        self.threadpool.start(worker)
-
-    def populate_depots_worker(self, depots_to_create, progress_callback):
-        for i, depot_name in enumerate(depots_to_create):
-            try:
-                p4_utils.populate_new_depot(
-                    self.shared_data.template_depot["name"], depot_name
-                )
-            except p4_utils.P4Exception as e:
-                logger.warning(f"Error populating depot {depot_name}: {e}")
-            progress_callback.emit(i + 1)
-
-    def populate_complete(self):
-        self.populate_button.setText("Done")
-        self.populate_button.setEnabled(False)
 
     def write_undo_file(self):
         with open(UNDO_FILE, "w") as f:
