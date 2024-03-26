@@ -8,6 +8,8 @@ import argparse
 from datetime import datetime
 from pathlib import Path
 from collections import defaultdict
+import traceback
+
 
 from PyQt6.QtWidgets import (
     QApplication,
@@ -31,6 +33,23 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QObject, pyqtSignal, QRunnable, pyqtSlot, QThreadPool
 
 import p4_utils
+
+
+def custom_exception_hook(exc_type, exc_value, exc_traceback):
+    # Format the exception message
+    error_msg = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
+
+    # Create a QMessageBox to display the error message
+    msg_box = QMessageBox()
+    msg_box.setIcon(QMessageBox.Critical)
+    msg_box.setWindowTitle("Application Error")
+    msg_box.setText("An unhandled exception occurred:")
+    msg_box.setInformativeText(error_msg)
+    msg_box.setStandardButtons(QMessageBox.Ok)
+    msg_box.exec_()
+
+    # Call the default exception hook to handle the exception normally
+    sys.__excepthook__(exc_type, exc_value, exc_traceback)
 
 
 # Create a custom logger
@@ -82,6 +101,7 @@ EMAIL_DOMAIN = r"[^@]+\.[^@]+"
 DEFAULT_PASSWORD = ""
 CSV_FIELDS = [
     {"label": "Name", "validation": lambda s: s or None},
+    {"label": "Username", "validation": lambda s: is_valid_spec_string(s) or None},
     {
         "label": "E-mail",
         "validation": lambda s: (
@@ -90,21 +110,46 @@ CSV_FIELDS = [
     },
     {
         "label": "Group",
-        "validation": lambda s: (
-            s
-            if bool(
-                re.match(r"^(?!-)[\w]+$", s, re.UNICODE)
-                and not s.isnumeric()
-                and all(c not in "/,.*%" for c in s)
-            )
-            else None
-        ),
+        "validation": lambda s: is_valid_spec_string(s) or None,
     },
     {
-        "label": "Owner",
-        "validation": lambda s: bool(s and s.lower() not in ["false", "no", "f", "n"]),
+        "label": "Password",
+        "validation": lambda s: s if s.isascii() else None,
     },
 ]
+
+
+def is_valid_spec_string(s):
+    """Checks if a string is a valid helix core non-unicode spec value
+
+    Args:
+        s (str): input string
+
+    Returns:
+        str or None: Returns the original string if valid, otherwise returns None
+    """
+    if not isinstance(s, str):
+        return None
+
+    if not s.isascii():
+        return None
+
+    if s.startswith("-"):
+        return None
+
+    if re.search(r"[@#/,\s]", s):
+        return None
+
+    if re.search(r"(^|/)\.\.?(/|$)", s):
+        return None
+
+    if re.search(r"[*%]", s):
+        return None
+
+    if s.isdigit():
+        return None
+
+    return s
 
 
 class CSV_VALIDATION_ERROR(Exception):
@@ -311,9 +356,10 @@ class CombinedWindow(QWidget):
         # ____________USERS____________
         users = [
             {
-                "User": row[1].split("@")[0],
-                "Email": row[1],
+                "User": row[1],
+                "Email": row[2],
                 "FullName": row[0],
+                "Password": row[4],
             }
             for row in self.shared_data.table_data
         ]
@@ -329,9 +375,9 @@ class CombinedWindow(QWidget):
         existing_groups = p4_utils.get_existing_groups()
         group_users = defaultdict(lambda: {"Users": [], "Owners": []})
         for row in self.shared_data.table_data:
-            if row[3] == "True":
-                group_users[row[2]]["Owners"].append(row[1].split("@")[0])
-            group_users[row[2]]["Users"].append(row[1].split("@")[0])
+            # if row[3] == "True":
+            #     group_users[row[2]]["Owners"].append(row[1])
+            group_users[row[3]]["Users"].append(row[1])
         self.shared_data.groups_to_process = [
             {
                 "Group": group,
@@ -404,8 +450,17 @@ class CombinedWindow(QWidget):
     def create_users_worker(self, users_to_create, progress_callback):
         for i, user in enumerate(users_to_create):
             logger.debug(f"User ({i+1}/{len(users_to_create)}) {user}")
-            p4_utils.create_user(user)
-            if len(DEFAULT_PASSWORD) >= 8:
+            p4_utils.create_user(
+                {
+                    "User": user["User"],
+                    "Email": user["Email"],
+                    "FullName": user["FullName"],
+                }
+            )
+            if user["Password"]:
+                pw_res = p4_utils.set_initial_password(user["User"], user["Password"])
+                logger.debug(f"Password set: {pw_res}")
+            elif len(DEFAULT_PASSWORD) >= 8:
                 pw_res = p4_utils.set_initial_password(user["User"], DEFAULT_PASSWORD)
                 logger.debug(f"Password set: {pw_res}")
             progress_callback.emit(i + 1)
@@ -555,6 +610,7 @@ class MainWindow(QMainWindow):
 def main():
     global EMAIL_DOMAIN
     global DEFAULT_PASSWORD
+
     parser = argparse.ArgumentParser(
         description="Bulk create users, groups, depots, permissions, and populate from a template depot."
     )
@@ -573,6 +629,7 @@ def main():
     EMAIL_DOMAIN = read_config("EMAIL_DOMAIN", fallback=EMAIL_DOMAIN)
     DEFAULT_PASSWORD = read_config("DEFAULT_PASSWORD", fallback=DEFAULT_PASSWORD)
 
+    sys.excepthook = custom_exception_hook
     app = QApplication(sys.argv)
     shared_data = SharedData()
     window = MainWindow(shared_data)

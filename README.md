@@ -1,21 +1,26 @@
 # p4_bulk_project_creator
 
-This python gui application allows you to create multiple users, groups and depots from a csv file.
-Additionally, it will populate the depots with streams and populate the streams with files based on a template depot. In order for a depot to show up on the template list, the depot must contain the word "template" in it's name.
+**NOTE: This is a modified version of the original p4_bulk_project_creator.**
+
+This branch is just for creating users and groups and has slightly different features for things like
+setting up default passwords for users and specifying custom usernames.
+
+This python gui application allows you to create multiple users and groups from a csv file.
 
 This is an example of the csv file format:
 ```csv
-Name,E-mail,Group_Name,Owner
-Walter Reed,wreed@student.email,202230_356_Group08,True
-Xenia Collins,xcollins@student.email,202230_356_Group08,
-Yasmin Edwards,yedwards@student.email,202230_356_Group08,
-Anna Powell,apowell@student.email,202230_356_Group09,True
-Brian Hughes,bhughes@student.email,202230_356_Group09,
+Name,Username,E-mail,Group,Password
+Alice Smith,AliceSmith,asmith@student.email,Modeling,fdsoeih2#$!
+Bob Johnson,BobJohnson,bjohnson@student.email,Modeling,dfgjkl34@#$
+Charlie Brown,CharlieBrown,cbrown@student.email,Simulation,tyuiop98@#$
+David Lee,DavidLee,dlee@student.email,Visualization,qwerty12@#$
 ```
 
 (Examples of good and bad CSV files for testing can be found in the `data/` folder.)
 
 **Name**: The name field is used for the user's full name.
+
+**Username**: The username field is used for the user's username in Helix Core.
 
 **E-mail**: Usernames in Helix Core will be the first part of the email address (before the @ symbol).
 
@@ -23,12 +28,9 @@ The email field must match the email domain specified in the config file. If no 
 
 **Group_Name**: The group name field is used to specify which group the user will be added to.
 
-The group names are also the names of the depots which will be created.
+Be sure you add lines to your p4 protect table for these groups so that users can login to the server.
 
-The permissions will be updated so that users in each group can write to the depot of the same name.
-
-**Owner**: If this field is set to true, the user will be set as an owner of the group, which will allow them to add and remove users from the group.
-This can be set to false or left blank for other users.
+**Password**: The password field is used for the user's initial password. If no password is specified, the default password will be used. (see below)
 
 ## Requirements
 - P4 CLI
