@@ -90,7 +90,7 @@ def read_config(parameter, fallback=None, is_bool=False):
             result = config.getboolean("DEFAULT", parameter, fallback=fallback)
         else:
             result = config.get("DEFAULT", parameter, fallback=fallback)
-        logger.debug(f"{parameter} = {result or fallback}")
+        logger.debug(f"{parameter} = {result}")
         return result or fallback
     logger.debug(f"No config file found. Using fallback: {parameter} = {fallback}")
     return fallback

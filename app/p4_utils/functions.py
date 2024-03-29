@@ -50,7 +50,10 @@ def get_existing_groups():
 
 
 def create_group(group_to_add: dict):
-    p4.input = group_to_add
+    group_spec = p4.run("group", "-o", group_to_add["Group"])[0]
+    group_spec.setdefault("Users", []).extend(group_to_add["Users"])
+    group_spec.setdefault("Owners", []).extend(group_to_add["Owners"])
+    p4.input = group_spec
     return p4.run("group", "-i")
 
 
