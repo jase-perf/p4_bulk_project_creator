@@ -86,15 +86,16 @@ By default, any standard email address will be accepted.
 
 By default, the initial password for all users will be `ChangeMe123!`.
 
-For example, if you wanted to only validate email addresses that end in @myuniversity.edu, and change the default password to "myUniversitySecret#45" set the `config.ini` file to:
+By default, users will NOT be required to reset their password on first login. To enable this feature, set `REQUIRE_PASSWORD_RESET = true`.
+
+For example, if you wanted to only validate email addresses that end in @myuniversity.edu, change the default password to "myUniversitySecret#45", and require a password reset on first login, set the `config.ini` file to:
 
 ```
 [DEFAULT]
 EMAIL_DOMAIN = myuniversity.edu
 DEFAULT_PASSWORD = myUniversitySecret#45
+REQUIRE_PASSWORD_RESET = true
 ```
-
-**Users will be forced to change their password when they first login**
 
 ## Notes
 - Server must be 2022.1 or higher for the undo commands to work properly when removing streams.

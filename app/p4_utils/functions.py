@@ -28,10 +28,12 @@ def create_user(user_to_add: dict):
     return p4.run("user", "-f", "-i")
 
 
-def set_initial_password(user: str, password: str):
+def set_initial_password(user: str, password: str, require_reset: bool):
     p4.input = password
-    p4.run("passwd", user)
-    return p4.run("admin", "resetpassword", "-u", user)
+    result = p4.run("passwd", user)
+    if require_reset:
+        result += p4.run("admin", "resetpassword", "-u", user)
+    return result
 
 
 def get_existing_groups():

@@ -81,15 +81,18 @@ def setup_logger(console_level=logging.INFO, file_level=logging.DEBUG):
     logger.addHandler(f_handler)
 
 
-def read_config(parameter, fallback=None):
+def read_config(parameter, fallback=None, is_bool=False):
     if CONFIG_FILE.exists():
         logger.debug(f"Reading config file {CONFIG_FILE}")
         config = configparser.ConfigParser()
         config.read(CONFIG_FILE)
-        result = config.get("DEFAULT", parameter, fallback=fallback)
-        logger.debug(f"{parameter} = '{result or fallback}'")
+        if is_bool:
+            result = config.getboolean("DEFAULT", parameter, fallback=fallback)
+        else:
+            result = config.get("DEFAULT", parameter, fallback=fallback)
+        logger.debug(f"{parameter} = {result or fallback}")
         return result or fallback
-    logger.debug(f"No config file found. Using fallback: {fallback}")
+    logger.debug(f"No config file found. Using fallback: {parameter} = {fallback}")
     return fallback
 
 
@@ -99,6 +102,7 @@ EMAIL_DOMAIN = r"[^@]+\.[^@]+"
 # If DEFAULT_PASSWORD is empty or less than 8 chars, no password will be set
 # and the user will be prompted to create one at first login.
 DEFAULT_PASSWORD = ""
+REQUIRE_PASSWORD_RESET = True
 CSV_FIELDS = [
     {"label": "Name", "validation": lambda s: s or None},
     {"label": "Username", "validation": lambda s: is_valid_spec_string(s) or None},
@@ -458,10 +462,14 @@ class CombinedWindow(QWidget):
                 }
             )
             if user["Password"]:
-                pw_res = p4_utils.set_initial_password(user["User"], user["Password"])
+                pw_res = p4_utils.set_initial_password(
+                    user["User"], user["Password"], REQUIRE_PASSWORD_RESET
+                )
                 logger.debug(f"Password set: {pw_res}")
             elif len(DEFAULT_PASSWORD) >= 8:
-                pw_res = p4_utils.set_initial_password(user["User"], DEFAULT_PASSWORD)
+                pw_res = p4_utils.set_initial_password(
+                    user["User"], DEFAULT_PASSWORD, REQUIRE_PASSWORD_RESET
+                )
                 logger.debug(f"Password set: {pw_res}")
             progress_callback.emit(i + 1)
 
@@ -610,6 +618,7 @@ class MainWindow(QMainWindow):
 def main():
     global EMAIL_DOMAIN
     global DEFAULT_PASSWORD
+    global REQUIRE_PASSWORD_RESET
 
     parser = argparse.ArgumentParser(
         description="Bulk create users, groups, depots, permissions, and populate from a template depot."
@@ -628,6 +637,9 @@ def main():
 
     EMAIL_DOMAIN = read_config("EMAIL_DOMAIN", fallback=EMAIL_DOMAIN)
     DEFAULT_PASSWORD = read_config("DEFAULT_PASSWORD", fallback=DEFAULT_PASSWORD)
+    REQUIRE_PASSWORD_RESET = read_config(
+        "REQUIRE_PASSWORD_RESET", fallback=REQUIRE_PASSWORD_RESET, is_bool=True
+    )
 
     sys.excepthook = custom_exception_hook
     app = QApplication(sys.argv)
