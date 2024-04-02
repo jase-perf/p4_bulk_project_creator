@@ -501,9 +501,17 @@ class CombinedWindow(QWidget):
         self.group_button.setText("Done")
         self.group_button.setEnabled(False)
         undo_commands = [
-            f"p4 group -dF {group['Group']}"
-            for group in self.shared_data.groups_to_process
+            "# Commands to delete groups which were added and remove their permissions:"
         ]
+        undo_commands += [
+            f"p4 group -dF {group['Group']}"
+            for group in self.shared_data.groups_to_create
+        ] or ["# --> No groups were created."]
+        undo_commands += ["# Groups which were modified (cannot easily undo):"]
+        undo_commands += [
+            f"p4 group -o {group['Group']}"
+            for group in self.shared_data.groups_to_modify
+        ] or ["# --> No groups were modified."]
         undo_commands_str = "\n".join(undo_commands)
         self.shared_data.undo_commands.extend(undo_commands)
         self.write_undo_file()
