@@ -28,10 +28,12 @@ def create_user(user_to_add: dict):
     return p4.run("user", "-f", "-i")
 
 
-def set_initial_password(user: str, password: str):
+def set_initial_password(user: str, password: str, require_reset: bool):
     p4.input = password
-    p4.run("passwd", user)
-    return p4.run("admin", "resetpassword", "-u", user)
+    result = p4.run("passwd", user)
+    if require_reset:
+        result += p4.run("admin", "resetpassword", "-u", user)
+    return result
 
 
 def get_existing_groups():
@@ -48,7 +50,10 @@ def get_existing_groups():
 
 
 def create_group(group_to_add: dict):
-    p4.input = group_to_add
+    group_spec = p4.run("group", "-o", group_to_add["Group"])[0]
+    group_spec.setdefault("Users", []).extend(group_to_add["Users"])
+    group_spec.setdefault("Owners", []).extend(group_to_add["Owners"])
+    p4.input = group_spec
     return p4.run("group", "-i")
 
 
@@ -129,6 +134,8 @@ def create_branch_maps(template_depot_name, new_depot_name):
     )
     branch_maps = []
     for stream in streams:
+        if stream["Type"] == "virtual":
+            continue
         branch_map = p4.fetch_branch(f"populate_{new_depot_name}_{stream['Stream']}")
         branch_map["View"] = [
             f"{stream['Stream']}/... {stream['Stream'].replace(template_depot_name, new_depot_name)}/..."

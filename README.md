@@ -78,21 +78,25 @@ If you would prefer not to use the precompiled binaries or you wish to customize
 
 
 ## Configuration
+(See the install instructions for how to set the `Start In` directory, which is where this config.ini file should be placed.)
+
 The `config.ini` file can be edited to add a custom email domain and custom initial password for created users.
 
 By default, any standard email address will be accepted.
 
 By default, the initial password for all users will be `ChangeMe123!`.
 
-For example, if you wanted to only validate email addresses that end in @myuniversity.edu, and change the default password to "myUniversitySecret#45" set the `config.ini` file to:
+By default, users will be required to reset their password on first login. To disable this feature, set `REQUIRE_PASSWORD_RESET = false`.
+
+For example, if you wanted to only validate email addresses that end in @myuniversity.edu, change the default password to "myUniversitySecret#45", and not require a password reset on first login, set the `config.ini` file to:
 
 ```
 [DEFAULT]
 EMAIL_DOMAIN = myuniversity.edu
 DEFAULT_PASSWORD = myUniversitySecret#45
+REQUIRE_PASSWORD_RESET = false
 ```
 
-**Users will be forced to change their password when they first login**
 
 ## Notes
 - Server must be 2022.1 or higher for the undo commands to work properly when removing streams.

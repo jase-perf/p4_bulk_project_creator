@@ -8,6 +8,8 @@ import argparse
 from datetime import datetime
 from pathlib import Path
 from collections import defaultdict
+import traceback
+
 
 from PyQt6.QtWidgets import (
     QApplication,
@@ -31,6 +33,23 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, QObject, pyqtSignal, QRunnable, pyqtSlot, QThreadPool
 
 import p4_utils
+
+
+def custom_exception_hook(exc_type, exc_value, exc_traceback):
+    # Format the exception message
+    error_msg = "".join(traceback.format_exception(exc_type, exc_value, exc_traceback))
+
+    # Create a QMessageBox to display the error message
+    msg_box = QMessageBox()
+    msg_box.setIcon(QMessageBox.Critical)
+    msg_box.setWindowTitle("Application Error")
+    msg_box.setText("An unhandled exception occurred:")
+    msg_box.setInformativeText(error_msg)
+    msg_box.setStandardButtons(QMessageBox.Ok)
+    msg_box.exec_()
+
+    # Call the default exception hook to handle the exception normally
+    sys.__excepthook__(exc_type, exc_value, exc_traceback)
 
 
 # Create a custom logger
@@ -62,39 +81,47 @@ def setup_logger(console_level=logging.INFO, file_level=logging.DEBUG):
     logger.addHandler(f_handler)
 
 
-def read_config(parameter, fallback=None):
+def read_config(parameter, fallback=None, is_bool=False):
     if CONFIG_FILE.exists():
         logger.debug(f"Reading config file {CONFIG_FILE}")
         config = configparser.ConfigParser()
         config.read(CONFIG_FILE)
-        result = config.get("DEFAULT", parameter, fallback=fallback)
-        logger.debug(f"{parameter} = '{result or fallback}'")
+        if is_bool:
+            result = config.getboolean("DEFAULT", parameter, fallback=fallback)
+        else:
+            result = config.get("DEFAULT", parameter, fallback=fallback)
+        logger.debug(f"{parameter} = {result}")
         return result or fallback
-    logger.debug(f"No config file found. Using fallback: {fallback}")
+    logger.debug(f"No config file found. Using fallback: {parameter} = {fallback}")
     return fallback
 
 
 # r"[^@]+\.[^@]+" will match any standard 2-part domain name for email.
 # EMAIL_DOMAIN can be customized to require a specific domain like, "myuniversity.edu"
 EMAIL_DOMAIN = r"[^@]+\.[^@]+"
-DEFAULT_PASSWORD = "ChangeMe123!"
+# If DEFAULT_PASSWORD is empty or less than 8 chars, no password will be set
+# and the user will be prompted to create one at first login.
+DEFAULT_PASSWORD = ""
+REQUIRE_PASSWORD_RESET = True
 CSV_FIELDS = [
     {"label": "Name", "validation": lambda s: s or None},
     {
         "label": "E-mail",
-        "validation": lambda s: s
-        if bool(re.match(rf"[^@]+@{EMAIL_DOMAIN}", s))
-        else None,
+        "validation": lambda s: (
+            s if bool(re.match(rf"[^@]+@{EMAIL_DOMAIN}", s)) else None
+        ),
     },
     {
         "label": "Group",
-        "validation": lambda s: s
-        if bool(
-            re.match(r"^(?!-)[\w]+$", s, re.UNICODE)
-            and not s.isnumeric()
-            and all(c not in "/,.*%" for c in s)
-        )
-        else None,
+        "validation": lambda s: (
+            s
+            if bool(
+                re.match(r"^(?!-)[\w]+$", s, re.UNICODE)
+                and not s.isnumeric()
+                and all(c not in "/,.*%" for c in s)
+            )
+            else None
+        ),
     },
     {
         "label": "Owner",
@@ -232,6 +259,8 @@ class LoadCsvWindow(QWidget):
             and self.shared_data.template_depot
         ):
             self.next_button.setEnabled(True)
+        else:
+            self.next_button.setEnabled(False)
 
     def go_to_creation(self):
         self.shared_data.table_data = []
@@ -285,9 +314,13 @@ class CombinedWindow(QWidget):
         self.main_layout.addWidget(heading_label)
 
         # Add message about log and undo files
-        undo_label = QLabel(f"Undo commands will be written to <code>{Path(UNDO_FILE).absolute()}</code>")
+        undo_label = QLabel(
+            f"Undo commands will be written to <code>{Path(UNDO_FILE).absolute()}</code>"
+        )
         self.main_layout.addWidget(undo_label)
-        log_label = QLabel(f"Log file location: <code>{Path(LOG_FILE).absolute()}</code>")
+        log_label = QLabel(
+            f"Log file location: <code>{Path(LOG_FILE).absolute()}</code>"
+        )
         self.main_layout.addWidget(log_label)
 
         # __USERS__
@@ -443,8 +476,16 @@ class CombinedWindow(QWidget):
     def create_users_worker(self, users_to_create, progress_callback):
         for i, user in enumerate(users_to_create):
             logger.debug(f"User ({i+1}/{len(users_to_create)}) {user}")
-            p4_utils.create_user(user)
-            pw_res = p4_utils.set_initial_password(user["User"], DEFAULT_PASSWORD)
+            p4_utils.create_user(
+                {
+                    "User": user["User"],
+                    "Email": user["Email"],
+                    "FullName": user["FullName"],
+                }
+            )
+            pw_res = p4_utils.set_initial_password(
+                user["User"], DEFAULT_PASSWORD, REQUIRE_PASSWORD_RESET
+            )
             logger.debug(f"Password set: {pw_res}")
             progress_callback.emit(i + 1)
 
@@ -476,9 +517,17 @@ class CombinedWindow(QWidget):
         self.group_button.setText("Done")
         self.group_button.setEnabled(False)
         undo_commands = [
-            f"p4 group -dF {group['Group']}"
-            for group in self.shared_data.groups_to_process
+            "# Commands to delete groups which were added and remove their permissions:"
         ]
+        undo_commands += [
+            f"p4 group -dF {group['Group']}"
+            for group in self.shared_data.groups_to_create
+        ] or ["# --> No groups were created."]
+        undo_commands += ["# Groups which were modified (cannot easily undo):"]
+        undo_commands += [
+            f"p4 group -o {group['Group']}"
+            for group in self.shared_data.groups_to_modify
+        ] or ["# --> No groups were modified."]
         undo_commands_str = "\n".join(undo_commands)
         self.shared_data.undo_commands.extend(undo_commands)
         self.write_undo_file()
@@ -681,6 +730,8 @@ class MainWindow(QMainWindow):
 def main():
     global EMAIL_DOMAIN
     global DEFAULT_PASSWORD
+    global REQUIRE_PASSWORD_RESET
+
     parser = argparse.ArgumentParser(
         description="Bulk create users, groups, depots, permissions, and populate from a template depot."
     )
@@ -698,7 +749,11 @@ def main():
 
     EMAIL_DOMAIN = read_config("EMAIL_DOMAIN", fallback=EMAIL_DOMAIN)
     DEFAULT_PASSWORD = read_config("DEFAULT_PASSWORD", fallback=DEFAULT_PASSWORD)
+    REQUIRE_PASSWORD_RESET = read_config(
+        "REQUIRE_PASSWORD_RESET", fallback=REQUIRE_PASSWORD_RESET, is_bool=True
+    )
 
+    sys.excepthook = custom_exception_hook
     app = QApplication(sys.argv)
     shared_data = SharedData()
     window = MainWindow(shared_data)
