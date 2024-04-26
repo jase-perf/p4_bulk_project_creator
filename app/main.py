@@ -91,7 +91,7 @@ def read_config(parameter, fallback=None, is_bool=False):
         else:
             result = config.get("DEFAULT", parameter, fallback=fallback)
         logger.debug(f"{parameter} = {result}")
-        return result or fallback
+        return result
     logger.debug(f"No config file found. Using fallback: {parameter} = {fallback}")
     return fallback
 
@@ -474,6 +474,7 @@ class CombinedWindow(QWidget):
         self.threadpool.start(worker)
 
     def create_users_worker(self, users_to_create, progress_callback):
+        global REQUIRE_PASSWORD_RESET
         for i, user in enumerate(users_to_create):
             logger.debug(f"User ({i+1}/{len(users_to_create)}) {user}")
             p4_utils.create_user(
