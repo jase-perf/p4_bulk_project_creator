@@ -24,8 +24,12 @@ def check_users(new_user_list):
 
 
 def create_user(user_to_add: dict):
-    p4.input = user_to_add
-    return p4.run("user", "-f", "-i")
+    try:
+        p4.input = user_to_add
+        return p4.run("user", "-f", "-i")
+    except Exception as e:
+        logger.error(f"ERROR CREATING USER: {e}")
+        raise e
 
 
 def set_initial_password(user: str, password: str, require_reset: bool):

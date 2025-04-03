@@ -484,6 +484,7 @@ class CombinedWindow(QWidget):
                     "FullName": user["FullName"],
                 }
             )
+            logger.debug(f"{res}")
             pw_res = p4_utils.set_initial_password(
                 user["User"], DEFAULT_PASSWORD, REQUIRE_PASSWORD_RESET
             )
