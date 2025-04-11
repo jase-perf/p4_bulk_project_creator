@@ -45,7 +45,7 @@ def custom_exception_hook(exc_type, exc_value, exc_traceback):
     msg_box.setWindowTitle("Application Error")
     msg_box.setText("An unhandled exception occurred:")
     msg_box.setInformativeText(error_msg)
-    msg_box.setStandardButtons(QMessageBox.Ok)
+    msg_box.setStandardButtons(QMessageBox.StandardButton.Ok)
     msg_box.exec_()
 
     # Call the default exception hook to handle the exception normally
