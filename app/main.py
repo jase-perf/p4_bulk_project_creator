@@ -41,7 +41,7 @@ def custom_exception_hook(exc_type, exc_value, exc_traceback):
 
     # Create a QMessageBox to display the error message
     msg_box = QMessageBox()
-    msg_box.setIcon(QMessageBox.critical)
+    msg_box.setIcon(QMessageBox.Icon.Critical)
     msg_box.setWindowTitle("Application Error")
     msg_box.setText("An unhandled exception occurred:")
     msg_box.setInformativeText(error_msg)
@@ -57,7 +57,7 @@ logger = logging.getLogger("main")
 logger.setLevel(logging.DEBUG)
 
 LOG_FILE = "log.txt"
-UNDO_FILE = datetime.now().strftime("undo_commands_%Y-%m-%d_%H-%M-%S.txt")
+UNDO_FILE = Path("UNDO_FILES") / datetime.now().strftime("undo_commands_%Y-%m-%d_%H-%M-%S.txt")
 CONFIG_FILE = Path("config.ini")
 
 
@@ -92,7 +92,7 @@ def read_config(parameter, fallback=None, is_bool=False):
             result = config.get("DEFAULT", parameter, fallback=fallback)
         logger.debug(f"{parameter} = {result}")
         return result
-    logger.debug(f"No config file found. Using fallback: {parameter} = {fallback}")
+    logger.warning(f"No config file found at {CONFIG_FILE}. Using fallback: {parameter} = {fallback}")
     return fallback
 
 
