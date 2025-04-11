@@ -41,7 +41,7 @@ def custom_exception_hook(exc_type, exc_value, exc_traceback):
 
     # Create a QMessageBox to display the error message
     msg_box = QMessageBox()
-    msg_box.setIcon(QMessageBox.Critical)
+    msg_box.setIcon(QMessageBox.critical)
     msg_box.setWindowTitle("Application Error")
     msg_box.setText("An unhandled exception occurred:")
     msg_box.setInformativeText(error_msg)
@@ -477,7 +477,7 @@ class CombinedWindow(QWidget):
         global REQUIRE_PASSWORD_RESET
         for i, user in enumerate(users_to_create):
             logger.debug(f"User ({i+1}/{len(users_to_create)}) {user}")
-            p4_utils.create_user(
+            res = p4_utils.create_user(
                 {
                     "User": user["User"],
                     "Email": user["Email"],
