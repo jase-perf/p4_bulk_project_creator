@@ -10,7 +10,11 @@ logger = logging.getLogger("main.functions")
 
 def check_remaining_seats():
     license_info = p4.run("license", "-u")
-    return int(license_info[0]["userLimit"]) - int(license_info[0]["userCount"])
+    if license_info[0]["userLimit"] == "unlimited":
+        logger.warning("Server is unlicensed, so we will assume 5 seats are available.")
+        return 5 - int(license_info[0]["userCount"])
+    else:
+        return int(license_info[0]["userLimit"]) - int(license_info[0]["userCount"])
 
 
 def check_users(new_user_list):
