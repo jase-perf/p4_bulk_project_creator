@@ -3,6 +3,10 @@
 This python gui application allows you to create multiple users, groups and depots from a csv file.
 Additionally, it will populate the depots with streams and populate the streams with files based on a template depot. In order for a depot to show up on the template list, the depot must contain the word "template" in it's name.
 
+When the script creates new depots it will name them identically to the group names provided in the CSV.
+
+When the depot is populated, it will recreate the same stream structure as the template depot and will populate all the files from the template depot into the newly created streams.
+
 This is an example of the csv file format:
 ```csv
 Name,E-mail,Group_Name,Owner
