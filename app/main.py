@@ -30,7 +30,16 @@ from PyQt6.QtWidgets import (
     QLineEdit,
     QProgressBar,
 )
-from PyQt6.QtCore import Qt, QObject, pyqtSignal, QRunnable, pyqtSlot, QThreadPool
+from PyQt6.QtCore import (
+    Qt,
+    QObject,
+    pyqtSignal,
+    QRunnable,
+    pyqtSlot,
+    QThreadPool,
+    QTimer,
+)
+from PyQt6.QtGui import QMovie
 
 import p4_utils
 
@@ -57,7 +66,9 @@ logger = logging.getLogger("main")
 logger.setLevel(logging.DEBUG)
 
 LOG_FILE = "log.txt"
-UNDO_FILE = Path("UNDO_FILES") / datetime.now().strftime("undo_commands_%Y-%m-%d_%H-%M-%S.txt")
+UNDO_FILE = Path("UNDO_FILES") / datetime.now().strftime(
+    "undo_commands_%Y-%m-%d_%H-%M-%S.txt"
+)
 CONFIG_FILE = Path("config.ini")
 
 
@@ -92,7 +103,9 @@ def read_config(parameter, fallback=None, is_bool=False):
             result = config.get("DEFAULT", parameter, fallback=fallback)
         logger.debug(f"{parameter} = {result}")
         return result
-    logger.warning(f"No config file found at {CONFIG_FILE}. Using fallback: {parameter} = {fallback}")
+    logger.warning(
+        f"No config file found at {CONFIG_FILE}. Using fallback: {parameter} = {fallback}"
+    )
     return fallback
 
 
@@ -263,6 +276,7 @@ class LoadCsvWindow(QWidget):
             self.next_button.setEnabled(False)
 
     def go_to_creation(self):
+        # Collect data from table
         self.shared_data.table_data = []
         for row in range(self.table.rowCount()):
             row_data = []
@@ -271,7 +285,40 @@ class LoadCsvWindow(QWidget):
                 row_data.append(cell.text())
             self.shared_data.table_data.append(row_data)
 
-        self.parent().push(CombinedWindow(self.shared_data))
+        # Show loading dialog
+        self.loading_dialog = LoadingDialog(self)
+        self.loading_dialog.show()
+
+        # Disable the button to prevent multiple clicks
+        self.next_button.setEnabled(False)
+
+        # Start data preparation in background thread
+        self.threadpool = QThreadPool()
+        worker = DataPrepWorker(self.shared_data)
+        worker.signals.finished.connect(self.on_data_prepared)
+        worker.signals.error.connect(self.on_data_prep_error)
+        self.threadpool.start(worker)
+
+    def on_data_prepared(self, prepared_shared_data):
+        # Close loading dialog
+        self.loading_dialog.close()
+
+        # Navigate to creation window with prepared data
+        self.parent().push(CombinedWindow(prepared_shared_data, data_prepared=True))
+
+    def on_data_prep_error(self, error_message):
+        # Close loading dialog
+        self.loading_dialog.close()
+
+        # Re-enable button
+        self.next_button.setEnabled(True)
+
+        # Show error message
+        QMessageBox.critical(
+            self,
+            "Data Preparation Error",
+            f"An error occurred while preparing data:\n\n{error_message}",
+        )
 
     def set_template_depot(self, index):
         self.shared_data.template_depot = self.template_depots[index]
@@ -281,6 +328,111 @@ class LoadCsvWindow(QWidget):
 class Signals(QObject):
     finished = pyqtSignal()
     progress = pyqtSignal(int)
+
+
+class DataPrepSignals(QObject):
+    finished = pyqtSignal(object)  # Will emit the shared_data object
+    error = pyqtSignal(str)
+
+
+class LoadingDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Loading...")
+        self.setModal(True)
+        self.setFixedSize(300, 100)
+
+        layout = QVBoxLayout()
+
+        # Add loading message
+        self.message_label = QLabel("Preparing data, please wait...")
+        self.message_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self.message_label)
+
+        # Add progress bar (indeterminate)
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 0)  # Indeterminate progress
+        layout.addWidget(self.progress_bar)
+
+        self.setLayout(layout)
+
+        # Prevent closing with X button
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowType.WindowCloseButtonHint)
+
+
+class DataPrepWorker(QRunnable):
+    def __init__(self, shared_data):
+        super().__init__()
+        self.shared_data = shared_data
+        self.signals = DataPrepSignals()
+
+    @pyqtSlot()
+    def run(self):
+        try:
+            self.prepare_data()
+            self.signals.finished.emit(self.shared_data)
+        except Exception as e:
+            logger.error(f"Error preparing data: {e}")
+            self.signals.error.emit(str(e))
+
+    def prepare_data(self):
+        logger.debug("Preparing Data:")
+
+        # ____________USERS____________
+        users = [
+            {
+                "User": row[1].split("@")[0],
+                "Email": row[1],
+                "FullName": row[0],
+            }
+            for row in self.shared_data.table_data
+        ]
+        self.shared_data.users_to_create = p4_utils.check_users(users)
+        logger.debug(f"Users to create: {self.shared_data.users_to_create}")
+        try:
+            self.shared_data.remaining_licenses = p4_utils.check_remaining_seats()
+        except p4_utils.P4Exception as e:
+            logger.error(f"Unable to check remaining seats: {e}")
+            self.shared_data.remaining_licenses = 0
+
+        # ____________GROUPS____________
+        existing_groups = p4_utils.get_existing_groups()
+        group_users = defaultdict(lambda: {"Users": [], "Owners": []})
+        for row in self.shared_data.table_data:
+            if row[3] == "True":
+                group_users[row[2]]["Owners"].append(row[1].split("@")[0])
+            group_users[row[2]]["Users"].append(row[1].split("@")[0])
+        self.shared_data.groups_to_process = [
+            {
+                "Group": group,
+                "Users": group_users[group]["Users"],
+                "Owners": group_users[group]["Owners"],
+            }
+            for group in group_users
+        ]
+        self.shared_data.groups_to_create = [
+            group
+            for group in self.shared_data.groups_to_process
+            if not any(eg for eg in existing_groups if eg["Group"] == group["Group"])
+        ]
+        self.shared_data.groups_to_modify = [
+            group
+            for group in self.shared_data.groups_to_process
+            if any(eg for eg in existing_groups if eg["Group"] == group["Group"])
+        ]
+        logger.debug(f"Groups to create: {self.shared_data.groups_to_create}")
+        logger.debug(f"Groups to modify: {self.shared_data.groups_to_modify}")
+
+        # _________DEPOTS__________
+        unique_depots = list(group_users)
+        self.shared_data.depots_to_create = p4_utils.check_depots(unique_depots)
+        logger.debug(f"Depots to create: {self.shared_data.depots_to_create}")
+
+        # _________PERMISSIONS__________
+        self.shared_data.permissions_to_create = p4_utils.check_permissions(
+            unique_depots
+        )
+        logger.debug(f"Permissions to create: {self.shared_data.permissions_to_create}")
 
 
 class Creator(QRunnable):
@@ -298,12 +450,14 @@ class Creator(QRunnable):
 
 
 class CombinedWindow(QWidget):
-    def __init__(self, shared_data, parent=None):
+    def __init__(self, shared_data, parent=None, data_prepared=False):
         super().__init__(parent=parent)
         self.shared_data = shared_data
         self.threadpool = QThreadPool()
 
-        self.prepare_data()
+        # Only prepare data if it hasn't been prepared already
+        if not data_prepared:
+            self.prepare_data()
 
         # Set up the main Vertical Layout
         self.main_layout = QVBoxLayout()
