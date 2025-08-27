@@ -5,3 +5,4 @@ log.txt
 undo_commands_*
 build/
 *.spec
+.DS_Store
